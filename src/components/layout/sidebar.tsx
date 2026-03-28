@@ -16,11 +16,11 @@ import { Sheet, SheetContent, SheetClose } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  { icon: MessageCircle, label: "Chat", href: "/dashboard" },
-  { icon: BookOpen, label: "Scripture Explorer", href: "/dashboard/scripture" },
-  { icon: Sun, label: "Daily Wisdom", href: "/dashboard/daily-wisdom" },
-  { icon: Compass, label: "Guided Journeys", href: "/dashboard/journeys" },
-  { icon: User, label: "Profile", href: "/dashboard/profile" },
+  { icon: MessageCircle, label: "Chat", href: "/chat" },
+  { icon: BookOpen, label: "Scripture Explorer", href: "/scripture" },
+  { icon: Sun, label: "Daily Wisdom", href: "/wisdom" },
+  { icon: Compass, label: "Guided Journeys", href: "/journeys" },
+  { icon: User, label: "Profile", href: "/profile" },
 ];
 
 interface SidebarProps {

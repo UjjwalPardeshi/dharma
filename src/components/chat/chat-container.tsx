@@ -19,54 +19,87 @@ export function ChatContainer({
   consultationsUsed = 0,
   consultationsLimit = 5,
 }: ChatContainerProps) {
-  const { messages, isLoading, isStreaming, addMessage } = useChatStore();
+  const { messages, isLoading, isStreaming, addMessage, setIsLoading, setIsStreaming } =
+    useChatStore();
   const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const scrollRef = useRef<{ scrollTo: (offset: number) => void } | null>(null);
 
-  // Auto-scroll to bottom on new messages
   useEffect(() => {
-    if (scrollRef.current) {
-      setTimeout(() => {
-        scrollRef.current?.scrollTo(Number.MAX_SAFE_INTEGER);
-      }, 0);
-    }
+    setTimeout(() => {
+      const viewport = scrollAreaRef.current?.querySelector(
+        "[data-radix-scroll-area-viewport]"
+      );
+      if (viewport) {
+        viewport.scrollTop = viewport.scrollHeight;
+      }
+    }, 50);
   }, [messages]);
 
-  const handleSendMessage = (content: string) => {
-    if (content.trim()) {
-      const newMessage = {
-        id: Date.now().toString(),
-        role: "user" as const,
-        content,
-        responseJson: null,
-        citations: null,
-        createdAt: new Date().toISOString(),
-      };
+  const handleSendMessage = async (content: string) => {
+    if (!content.trim()) return;
 
-      addMessage(newMessage);
+    const userMessage = {
+      id: Date.now().toString(),
+      role: "user" as const,
+      content,
+      responseJson: null,
+      citations: null,
+      createdAt: new Date().toISOString(),
+    };
+    addMessage(userMessage);
 
-      // Simulate assistant response (will be replaced with actual API call)
-      setTimeout(() => {
-        const assistantMessage = {
+    setIsLoading(true);
+    setIsStreaming(true);
+
+    try {
+      const res = await fetch("/api/consultations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: content }),
+      });
+
+      const result = await res.json();
+
+      if (!res.ok) {
+        addMessage({
           id: (Date.now() + 1).toString(),
-          role: "assistant" as const,
-          content: "Thank you for sharing this with me. Let me consult the ancient texts...",
+          role: "assistant",
+          content: result.error || "Something went wrong. Please try again.",
           responseJson: null,
           citations: null,
           createdAt: new Date().toISOString(),
-        };
-        addMessage(assistantMessage);
-      }, 1000);
+        });
+        return;
+      }
+
+      const framework = result.data?.response;
+      const formatted = framework ? formatParsedResponse(framework) : "I was unable to generate a response.";
+
+      addMessage({
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: formatted,
+        responseJson: framework || null,
+        citations: null,
+        createdAt: new Date().toISOString(),
+      });
+    } catch {
+      addMessage({
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: "I'm unable to respond right now. Please check your connection and try again.",
+        responseJson: null,
+        citations: null,
+        createdAt: new Date().toISOString(),
+      });
+    } finally {
+      setIsLoading(false);
+      setIsStreaming(false);
     }
   };
 
   return (
     <div className="flex flex-col h-full">
-      {/* Messages area */}
-      <ScrollArea
-        className="flex-1 overflow-hidden"
-        ref={scrollRef as any}
-      >
+      <ScrollArea className="flex-1 overflow-hidden" ref={scrollAreaRef}>
         <div className="p-6 max-w-4xl mx-auto w-full">
           {messages.length === 0 ? (
             <WelcomeState userName={userName} onSelectTopic={handleSendMessage} />
@@ -76,7 +109,6 @@ export function ChatContainer({
         </div>
       </ScrollArea>
 
-      {/* Input area */}
       <div className="border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="max-w-4xl mx-auto w-full p-4">
           <InputBox
@@ -90,3 +122,39 @@ export function ChatContainer({
     </div>
   );
 }
+
+function formatParsedResponse(parsed: {
+  empatheticAcknowledgment?: string;
+  mythologicalParallel?: { story?: string; lesson?: string };
+  practicalGuidance?: string[];
+  lifeLesson?: string;
+}): string {
+  const sections: string[] = [];
+
+  if (parsed.empatheticAcknowledgment) {
+    sections.push(parsed.empatheticAcknowledgment);
+  }
+
+  if (parsed.mythologicalParallel?.story) {
+    sections.push(
+      `**From the Ancient Texts:**\n${parsed.mythologicalParallel.story}`
+    );
+    if (parsed.mythologicalParallel.lesson) {
+      sections.push(`*${parsed.mythologicalParallel.lesson}*`);
+    }
+  }
+
+  if (parsed.practicalGuidance?.length) {
+    const steps = parsed.practicalGuidance
+      .map((step, i) => `${i + 1}. ${step}`)
+      .join("\n");
+    sections.push(`**Practical Steps:**\n${steps}`);
+  }
+
+  if (parsed.lifeLesson) {
+    sections.push(`**Life Lesson:** ${parsed.lifeLesson}`);
+  }
+
+  return sections.join("\n\n");
+}
+

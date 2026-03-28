@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -32,7 +31,6 @@ type Step1Data = z.infer<typeof step1Schema>;
 type Step2Data = z.infer<typeof step2Schema>;
 
 export default function OnboardingPage() {
-  const router = useRouter();
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [isLoading, setIsLoading] = useState(false);
   const [step1Data, setStep1Data] = useState<Step1Data | null>(null);
@@ -79,7 +77,19 @@ export default function OnboardingPage() {
     try {
       if (!step1Data) return;
 
-      // Update user preferences
+      // Sign in first so the preferences API can authenticate
+      const result = await signIn("credentials", {
+        email: step1Data.email,
+        password: step1Data.password,
+        redirect: false,
+      });
+
+      if (!result?.ok) {
+        toast.error("Failed to sign in");
+        return;
+      }
+
+      // Now save preferences (user is authenticated)
       const updateResponse = await fetch("/api/user/preferences", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -92,26 +102,11 @@ export default function OnboardingPage() {
       });
 
       if (!updateResponse.ok) {
-        toast.error("Failed to save preferences");
-        return;
+        // Non-critical: user is created, preferences can be set later
+        console.warn("Failed to save preferences, continuing to welcome");
       }
 
-      // Sign in the user
-      const result = await signIn("credentials", {
-        email: step1Data.email,
-        password: step1Data.password,
-        redirect: false,
-      });
-
-      if (result?.ok) {
-        setStep(3);
-        // Redirect after showing welcome screen
-        setTimeout(() => {
-          router.push("/dashboard");
-        }, 2000);
-      } else {
-        toast.error("Failed to sign in");
-      }
+      setStep(3);
     } catch {
       toast.error("An error occurred. Please try again.");
     } finally {
@@ -371,7 +366,7 @@ export default function OnboardingPage() {
                 </div>
 
                 <Button
-                  onClick={() => router.push("/dashboard")}
+                  onClick={() => window.location.href = "/chat"}
                   className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
                 >
                   Start Exploring

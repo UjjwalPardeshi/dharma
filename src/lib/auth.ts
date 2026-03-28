@@ -65,9 +65,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     newUser: "/onboarding",
   },
   callbacks: {
-    session({ session, user }) {
-      if (session.user) {
-        session.user.id = user.id;
+    session({ session, token }) {
+      if (session.user && token.id) {
+        session.user.id = token.id as string;
       }
       return session;
     },

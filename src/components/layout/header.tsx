@@ -18,7 +18,7 @@ export function Header({ session }: HeaderProps) {
     <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="flex h-14 items-center justify-between px-4 sm:px-6">
         {/* Logo */}
-        <Link href="/dashboard" className="flex items-center gap-2">
+        <Link href="/chat" className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-primary" />
           <span className="font-display text-lg font-semibold text-foreground">
             Divya Gyan
@@ -38,14 +38,14 @@ export function Header({ session }: HeaderProps) {
                 </button>
                 <div className="absolute right-0 mt-2 w-48 bg-background border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
                   <Link
-                    href="/dashboard/profile"
+                    href="/profile"
                     className="flex items-center gap-2 px-4 py-2 text-sm text-foreground hover:bg-muted first:rounded-t-lg"
                   >
                     <User className="h-4 w-4" />
                     Profile
                   </Link>
                   <Link
-                    href="/dashboard/settings"
+                    href="/settings"
                     className="flex items-center gap-2 px-4 py-2 text-sm text-foreground hover:bg-muted"
                   >
                     <Settings className="h-4 w-4" />

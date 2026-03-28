@@ -1,15 +1,10 @@
-import { Anthropic } from "@anthropic-ai/sdk";
-import type {
-  ResponseFramework,
-  TonePreference,
-  Tradition,
-  ConsultationResponse,
-} from "@/types";
+import { GoogleGenAI } from "@google/genai";
+import type { ResponseFramework, TonePreference, Tradition } from "@/types";
 import type { RagResult } from "@/lib/rag";
 
-const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY ?? "" });
+
+const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 
 export interface GenerateConsultationParams {
   query: string;
@@ -99,28 +94,22 @@ export async function generateConsultation(
 
   const systemPrompt = buildSystemPrompt(tone, tradition, ragContext);
 
-  const stream = await client.messages.stream({
-    model: "claude-3-5-sonnet-20241022",
-    max_tokens: 1024,
-    system: systemPrompt,
-    messages: [
-      {
-        role: "user",
-        content: query,
-      },
-    ],
+  const stream = await ai.models.generateContentStream({
+    model: MODEL,
+    config: {
+      systemInstruction: systemPrompt,
+      maxOutputTokens: 1024,
+    },
+    contents: [{ role: "user", parts: [{ text: query }] }],
   });
 
-  // Convert Anthropic stream to ReadableStream
   const readable = new ReadableStream<string>({
     async start(controller) {
       try {
         for await (const chunk of stream) {
-          if (
-            chunk.type === "content_block_delta" &&
-            chunk.delta.type === "text_delta"
-          ) {
-            controller.enqueue(chunk.delta.text);
+          const text = chunk.text ?? "";
+          if (text) {
+            controller.enqueue(text);
           }
         }
         controller.close();
@@ -149,26 +138,21 @@ export async function generateConsultationSync(
 
   const systemPrompt = buildSystemPrompt(tone, tradition, ragContext);
 
-  const message = await client.messages.create({
-    model: "claude-3-5-sonnet-20241022",
-    max_tokens: 1024,
-    system: systemPrompt,
-    messages: [
-      {
-        role: "user",
-        content: query,
-      },
-    ],
+  const result = await ai.models.generateContent({
+    model: MODEL,
+    config: {
+      systemInstruction: systemPrompt,
+      maxOutputTokens: 1024,
+    },
+    contents: [{ role: "user", parts: [{ text: query }] }],
   });
 
-  const fullText =
-    message.content[0]?.type === "text" ? message.content[0].text : "";
+  const fullText = result.text ?? "";
 
   let isClarifying = false;
   let response: ResponseFramework;
 
   try {
-    // Try to parse as JSON
     const jsonMatch = fullText.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       response = JSON.parse(jsonMatch[0]);
@@ -176,10 +160,7 @@ export async function generateConsultationSync(
       isClarifying = true;
       response = {
         empatheticAcknowledgment: fullText,
-        mythologicalParallel: {
-          story: "",
-          lesson: "",
-        },
+        mythologicalParallel: { story: "", lesson: "" },
         practicalGuidance: [],
         lifeLesson: "",
       };
@@ -188,10 +169,7 @@ export async function generateConsultationSync(
     isClarifying = true;
     response = {
       empatheticAcknowledgment: fullText,
-      mythologicalParallel: {
-        story: "",
-        lesson: "",
-      },
+      mythologicalParallel: { story: "", lesson: "" },
       practicalGuidance: [],
       lifeLesson: "",
     };

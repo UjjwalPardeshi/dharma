@@ -4,6 +4,18 @@ import type { ResponseFramework, Citation } from "@/types";
 import { Sparkles } from "lucide-react";
 import { ResponseLayers } from "./response-layers";
 
+function simpleMarkdown(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g, "<em>$1</em>")
+    .replace(/^(\d+)\.\s/gm, "<br/>$1. ")
+    .replace(/\n/g, "<br/>");
+}
+
 interface SageMessageProps {
   content: string;
   responseJson: ResponseFramework | null;
@@ -33,9 +45,10 @@ export function SageMessage({
           />
         ) : (
           <div className="max-w-2xl px-4 py-3 rounded-lg bg-muted text-foreground">
-            <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
-              {content}
-            </p>
+            <div
+              className="text-sm leading-relaxed whitespace-pre-wrap break-words prose prose-sm max-w-none"
+              dangerouslySetInnerHTML={{ __html: simpleMarkdown(content) }}
+            />
           </div>
         )}
       </div>

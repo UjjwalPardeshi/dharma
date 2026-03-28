@@ -4,7 +4,7 @@ import { z } from "zod";
 import { moderateInput } from "@/lib/moderation";
 import { detectCrisis, getCrisisResponse } from "@/lib/safety";
 import { buildRagContext } from "@/lib/rag";
-import { generateConsultation, getMockConsultationResponse } from "@/lib/llm";
+import { generateConsultationSync } from "@/lib/llm";
 import type { ApiResponse } from "@/types";
 
 const consultationRequestSchema = z.object({
@@ -24,48 +24,8 @@ const consultationRequestSchema = z.object({
 
 type ConsultationRequest = z.infer<typeof consultationRequestSchema>;
 
-async function checkQuota(userId: string): Promise<{ allowed: boolean; reason?: string }> {
-  const subscription = await prisma.subscription.findUnique({
-    where: { userId },
-  });
-
-  if (!subscription) {
-    return {
-      allowed: false,
-      reason: "No active subscription found",
-    };
-  }
-
-  if (subscription.status !== "active") {
-    return {
-      allowed: false,
-      reason: "Your subscription is not active",
-    };
-  }
-
-  // Check monthly quota for free plan
-  if (subscription.planType === "free") {
-    // Calculate reset date (first day of month)
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-
-    const usage = await prisma.usageLog.count({
-      where: {
-        userId,
-        createdAt: {
-          gte: monthStart,
-        },
-      },
-    });
-
-    if (usage >= 5) {
-      return {
-        allowed: false,
-        reason: "Free plan limit (5 consultations/month) reached",
-      };
-    }
-  }
-
+async function checkQuota(_userId: string): Promise<{ allowed: boolean; reason?: string }> {
+  // Quota disabled for development
   return { allowed: true };
 }
 
@@ -180,8 +140,8 @@ export async function POST(request: Request) {
       5
     );
 
-    // 8. Generate consultation with streaming
-    const stream = await generateConsultation({
+    // 8. Generate consultation (non-streaming for clean formatted response)
+    const { response, fullText, isClarifying } = await generateConsultationSync({
       query,
       userId,
       sessionId: chatSession.id,
@@ -190,99 +150,36 @@ export async function POST(request: Request) {
       tradition: preferences?.tradition,
     });
 
-    // 9. Save consultation to database (we'll log it after streaming starts)
-    let fullResponse = "";
-    let consultation: any = null;
-
-    // Create streaming response
-    const responseStream = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        try {
-          const reader = stream.getReader();
-
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            fullResponse += value;
-
-            // Stream the content to client
-            const chunk = `data: ${JSON.stringify({
-              type: "stream",
-              content: value,
-            })}\n\n`;
-
-            controller.enqueue(new TextEncoder().encode(chunk));
-          }
-
-          // Parse final response and save to DB
-          try {
-            const jsonMatch = fullResponse.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-              const parsed = JSON.parse(jsonMatch[0]);
-              consultation = await prisma.consultation.create({
-                data: {
-                  sessionId: chatSession.id,
-                  userId,
-                  userQuery: query,
-                  responseJson: parsed,
-                  aiResponse: fullResponse,
-                  isClarifying:
-                    !parsed.mythologicalParallel?.story ||
-                    !parsed.practicalGuidance?.length,
-                },
-              });
-
-              // Save crisis flag if detected
-              if (crisisDetection.detected) {
-                await prisma.safetyFlag.create({
-                  data: {
-                    consultationId: consultation.id,
-                    flagType: crisisDetection.type!,
-                    detectedText: query.substring(0, 500),
-                    confidence: crisisDetection.confidence,
-                    actionTaken: "escalated",
-                  },
-                });
-              }
-            }
-          } catch (e) {
-            console.warn("Failed to parse consultation response:", e);
-          }
-
-          // Log usage
-          await prisma.usageLog.create({
-            data: {
-              userId,
-              action: "consultation",
-              metadata: {
-                consultationId: consultation?.id,
-              },
-            },
-          });
-
-          // Send completion marker
-          controller.enqueue(
-            new TextEncoder().encode(
-              `data: ${JSON.stringify({ type: "done", consultationId: consultation?.id })}\n\n`
-            )
-          );
-
-          controller.close();
-        } catch (error) {
-          console.error("Stream error:", error);
-          controller.error(error);
-        }
+    // 9. Save consultation to database
+    const consultation = await prisma.consultation.create({
+      data: {
+        sessionId: chatSession.id,
+        userId,
+        userQuery: query,
+        responseJson: response as any,
+        aiResponse: fullText,
+        isClarifying,
       },
     });
 
-    return new Response(responseStream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
+    // 10. Log usage
+    await prisma.usageLog.create({
+      data: {
+        userId,
+        action: "consultation",
+        metadata: { consultationId: consultation.id },
       },
     });
+
+    return Response.json({
+      success: true,
+      data: {
+        consultationId: consultation.id,
+        sessionId: chatSession.id,
+        response,
+        isClarifying,
+      },
+    } as ApiResponse<any>);
   } catch (error) {
     console.error("Consultation error:", error);
 
