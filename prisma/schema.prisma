@@ -1,0 +1,248 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Authentication (NextAuth) ───────────────────────────────────
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─── Users ───────────────────────────────────────────────────────
+
+model User {
+  id                String             @id @default(cuid())
+  email             String             @unique
+  emailVerified     DateTime?
+  name              String?
+  image             String?
+  passwordHash      String?
+  age               Int?
+  culturalBackground String?
+  preferredTradition String             @default("universal") // hindu, buddhist, greek, universal
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  deletedAt         DateTime?
+
+  accounts          Account[]
+  preferences       UserPreferences?
+  sessions          ChatSession[]
+  consultations     Consultation[]
+  subscription      Subscription?
+  usageLogs         UsageLog[]
+  userJourneys      UserJourney[]
+}
+
+model UserPreferences {
+  id                  String   @id @default(cuid())
+  userId              String   @unique
+  tonePreference      String   @default("practical") // casual, devotional, philosophical, practical
+  notificationEnabled Boolean  @default(true)
+  dailyWisdom         Boolean  @default(true)
+  language            String   @default("en")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── Chat Sessions & Consultations ──────────────────────────────
+
+model ChatSession {
+  id            String         @id @default(cuid())
+  userId        String
+  title         String?
+  topicCategory String?        // career, relationships, grief, purpose, ethics, stress, financial, leadership
+  context       Json?          // accumulated session metadata
+  startedAt     DateTime       @default(now())
+  lastMessageAt DateTime       @default(now())
+  endedAt       DateTime?
+  createdAt     DateTime       @default(now())
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  consultations Consultation[]
+
+  @@index([userId, lastMessageAt(sort: Desc)])
+}
+
+model Consultation {
+  id            String       @id @default(cuid())
+  sessionId     String
+  userId        String
+  userQuery     String       @db.Text
+  aiResponse    String       @db.Text
+  responseJson  Json?        // structured 4-layer response
+  citations     Json?        // array of citation objects
+  tokensUsed    Int?
+  responseTimeMs Int?
+  isClarifying  Boolean      @default(false)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  deletedAt     DateTime?
+
+  session       ChatSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  safetyFlags   SafetyFlag[]
+
+  @@index([sessionId, createdAt])
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+model SafetyFlag {
+  id              String       @id @default(cuid())
+  consultationId  String
+  flagType        String       // suicidal_ideation, abuse, extreme_distress, medical_advice
+  confidence      Float
+  detectedText    String?      @db.Text
+  actionTaken     String       // escalated, resource_provided, manual_review
+  reviewedByAdmin String?
+  createdAt       DateTime     @default(now())
+
+  consultation    Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+}
+
+// ─── Subscriptions & Usage ──────────────────────────────────────
+
+model Subscription {
+  id                   String    @id @default(cuid())
+  userId               String    @unique
+  planType             String    @default("free") // free, premium_monthly, premium_annual
+  status               String    @default("active") // active, cancelled, expired
+  stripeSubscriptionId String?
+  stripeCustomerId     String?
+  consultationLimit    Int       @default(5) // 5 for free, -1 for unlimited
+  consultationsUsed    Int       @default(0)
+  billingCycleStart    DateTime  @default(now())
+  billingCycleEnd      DateTime?
+  createdAt            DateTime  @default(now())
+  cancelledAt          DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model UsageLog {
+  id        String   @id @default(cuid())
+  userId    String
+  action    String   // consultation, scripture_view, daily_wisdom, journey_day
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+// ─── Scripture Knowledge Base ───────────────────────────────────
+
+model Scripture {
+  id             String   @id @default(cuid())
+  title          String
+  tradition      String   // hindu, buddhist, greek, taoist, stoic, jain, biblical, sufi
+  description    String?  @db.Text
+  authorOrSource String?
+  language       String   @default("en")
+  totalVerses    Int      @default(0)
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  verses Verse[]
+}
+
+model Verse {
+  id           String   @id @default(cuid())
+  scriptureId  String
+  verseNumber  String   // e.g., "2.47" for Gita 2:47
+  text         String   @db.Text
+  translation  String?
+  themes       Json     @default("[]") // array of theme slugs
+  tags         Json     @default("[]") // array of keyword strings
+  embeddingId  String?  // reference to Pinecone vector ID
+  createdAt    DateTime @default(now())
+
+  scripture    Scripture    @relation(fields: [scriptureId], references: [id], onDelete: Cascade)
+  journeyDays  JourneyDay[]
+
+  @@index([scriptureId])
+}
+
+model Theme {
+  id              String   @id @default(cuid())
+  slug            String   @unique // career, relationships, grief, purpose, etc.
+  name            String
+  description     String?  @db.Text
+  emotionKeywords Json     @default("[]") // associated emotions
+  createdAt       DateTime @default(now())
+}
+
+// ─── Guided Reflection Journeys ─────────────────────────────────
+
+model Journey {
+  id           String   @id @default(cuid())
+  title        String
+  slug         String   @unique
+  description  String   @db.Text
+  durationDays Int
+  theme        String
+  tradition    String   @default("universal")
+  isPremium    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  days         JourneyDay[]
+  userJourneys UserJourney[]
+}
+
+model JourneyDay {
+  id               String  @id @default(cuid())
+  journeyId        String
+  dayNumber        Int
+  verseId          String
+  reflectionPrompt String  @db.Text
+  guidanceNotes    String  @db.Text
+
+  journey Journey @relation(fields: [journeyId], references: [id], onDelete: Cascade)
+  verse   Verse   @relation(fields: [verseId], references: [id])
+
+  @@unique([journeyId, dayNumber])
+}
+
+model UserJourney {
+  id          String    @id @default(cuid())
+  userId      String
+  journeyId   String
+  currentDay  Int       @default(1)
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+  status      String    @default("active") // active, completed, paused
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  journey Journey @relation(fields: [journeyId], references: [id])
+
+  @@unique([userId, journeyId])
+}
